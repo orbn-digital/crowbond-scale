@@ -1,0 +1,25 @@
+{
+  "name": "xtrem-scale-nodejs",
+  "version": "1.0.0",
+  "description": "Node.js client for XTREM scales network connection",
+  "main": "xtrem-scale.js",
+  "scripts": {
+    "start": "node xtrem-scale.js",
+    "test": "node xtrem-scale.js"
+  },
+  "keywords": [
+    "xtrem",
+    "scale",
+    "weight",
+    "udp",
+    "network"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "ably": "^2.11.0"
+  }
+}
