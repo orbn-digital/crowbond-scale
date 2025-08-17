@@ -1,59 +1,185 @@
-# XTREM Scale Node.js Client
+# Crowbond Scales Service
 
-Node.js implementation for connecting to XTREM scales via UDP network connection.
+Production-ready Node.js service for XTREM industrial scales network communication with real-time data streaming.
+
+## Features
+
+- **Multi-scale Support**: Connect and manage multiple XTREM scales simultaneously
+- **Real-time Streaming**: Stream weight data via Ably to connected clients
+- **TypeScript**: Fully typed for better developer experience and reliability
+- **Comprehensive Testing**: Unit and integration tests with Jest
+- **Production Ready**: Includes logging, monitoring, health checks, and auto-restart
+- **New Relic APM**: Built-in application performance monitoring
+- **Error Recovery**: Automatic reconnection with exponential backoff
+- **Health Endpoints**: HTTP endpoints for health checks and metrics
+
+## Prerequisites
+
+- Node.js >= 16.0.0
+- npm or yarn
+- PM2 (for production deployment)
+- XTREM scales on the network
+- Ably account for real-time streaming
+- New Relic account for monitoring
 
 ## Installation
-
-No external dependencies required - uses Node.js built-in `dgram` module for UDP communication.
 
 ```bash
 npm install
 ```
 
-## Usage
+## Configuration
 
-### Command Line
-
+1. Copy `.env.example` to `.env`:
 ```bash
-# Basic usage with IP address (uses default ports 5555/4444)
-node xtrem-scale.js 192.168.1.100
-
-# Custom ports
-node xtrem-scale.js 192.168.1.100 5555 4444
+cp .env.example .env
 ```
 
-### As a Module
+2. Update `.env` with your configuration:
+- `ABLY_API_KEY`: Your Ably API key
+- `NEW_RELIC_LICENSE_KEY`: Your New Relic license key
+- `SCALE_IPS`: Comma-separated list of scale IP addresses
+- `LOCAL_PORT`: Local UDP port for receiving data (default: 5555)
+- `REMOTE_PORT`: Scale UDP port (default: 4444)
 
-```javascript
-const XtremScale = require('./xtrem-scale');
+## Development
 
-async function example() {
-  const scale = new XtremScale('192.168.1.100', 5555, 4444);
-  
-  try {
-    await scale.connect();
-    const weight = await scale.getWeight();
-    console.log('Weight:', weight.display);
-  } finally {
-    await scale.close();
-  }
+```bash
+# Install dependencies
+npm install
+
+# Run in development mode with hot reload
+npm run start:dev
+
+# Run TypeScript compiler check
+npm run typecheck
+
+# Run linter
+npm run lint
+
+# Format code
+npm run format
+```
+
+## Testing
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with coverage
+npm run test:coverage
+```
+
+## Building
+
+```bash
+# Build TypeScript to JavaScript
+npm run build
+
+# Clean build artifacts
+npm run clean
+```
+
+## Production Deployment
+
+### Using PM2
+
+```bash
+# Build the application
+npm run build
+
+# Start with PM2
+npm run pm2:start
+
+# View logs
+npm run pm2:logs
+
+# Stop service
+npm run pm2:stop
+
+# Restart service
+npm run pm2:restart
+```
+
+### Direct Node.js
+
+```bash
+# Build and start
+npm run build
+npm run start:prod
+```
+
+## API Endpoints
+
+### Health Check
+```
+GET /health
+
+Response:
+{
+  "status": "healthy" | "unhealthy",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "scales": [
+    {
+      "id": "scale-1",
+      "ip": "192.168.1.100",
+      "isConnected": true,
+      "lastSeen": "2024-01-01T00:00:00.000Z",
+      "errorCount": 0
+    }
+  ]
 }
 ```
 
-## API
+### Metrics
+```
+GET /metrics
 
-### Constructor
-```javascript
-new XtremScale(scaleIP, localPort = 5555, remotePort = 4444)
+Response:
+{
+  "scales_total": 2,
+  "scales_connected": 2,
+  "scales_disconnected": 0,
+  "total_errors": 0
+}
 ```
 
-### Methods
+## Real-time Data
 
-- `connect()` - Establish UDP connection to the scale
-- `getWeight(timeout = 5000)` - Get current weight reading
-- `startStreaming()` - Start continuous weight data stream
-- `stopStreaming()` - Stop weight data stream
-- `close()` - Close the connection
+Weight updates are published to Ably channels:
+- Channel: `scale-{scaleId}`
+- Event: `weight-update`
+- Data: `{ scaleId, weight, timestamp }`
+
+Status updates are published to:
+- Channel: `scale-{scaleId}`
+- Event: `status-update`
+- Data: `{ id, ip, isConnected, lastSeen, errorCount, timestamp }`
+
+## Architecture
+
+```
+┌─────────────┐      UDP       ┌──────────────┐
+│ XTREM Scale ├───────────────►│              │
+└─────────────┘                │              │     ┌──────────┐
+                               │ Scale        ├────►│   Ably   │
+┌─────────────┐      UDP       │ Manager      │     └──────────┘
+│ XTREM Scale ├───────────────►│              │
+└─────────────┘                │              │     ┌──────────┐
+                               │              ├────►│ New Relic│
+┌─────────────┐      UDP       │              │     └──────────┘
+│ XTREM Scale ├───────────────►│              │
+└─────────────┘                └──────────────┘
+                                      │
+                                      ▼
+                               ┌──────────────┐
+                               │ Health API   │
+                               └──────────────┘
+```
 
 ## Protocol
 
@@ -61,11 +187,60 @@ The XTREM scale uses a proprietary protocol with commands wrapped in STX/ETX cha
 
 - **Start streaming**: `\u000200FFE10110000\u0003\r\n`
 - **Stop streaming**: `\u000200FFE10100000\u0003\r\n`
-
-## Notes
-
+- Weight data format: `0100r01071AW   0.000kgT   0.0...`
 - Default ports: Local 5555, Remote 4444
 - The scale must be configured for network communication
-- Weight data format: `0100r01071AW   0.000kgT   0.0...`
-- Ensure firewall allows UDP traffic on specified ports
-- The scale sends continuous weight updates when streaming is started
+
+## Project Structure
+
+```
+src/
+├── config/           # Configuration management
+├── scales/           # Scale communication logic
+│   └── XtremScale.ts
+├── services/         # Business logic
+│   ├── ScaleManager.ts
+│   └── realtime/
+│       ├── RealTimeProvider.ts
+│       └── AblyProvider.ts
+├── types/           # TypeScript type definitions
+├── utils/           # Utility functions
+│   └── logger.ts
+└── index.ts         # Application entry point
+
+tests/
+├── unit/            # Unit tests
+└── integration/     # Integration tests
+```
+
+## Monitoring
+
+The service integrates with New Relic APM for monitoring:
+- Application performance metrics
+- Error tracking
+- Transaction tracing
+- Custom metrics for scale operations
+
+## Troubleshooting
+
+### Scale Not Connecting
+1. Verify scale IP is reachable: `ping <scale_ip>`
+2. Check firewall rules for UDP ports
+3. Verify scale is configured for UDP communication
+4. Check logs: `npm run pm2:logs`
+
+### No Weight Data
+1. Ensure scale is powered on and connected to network
+2. Verify UDP ports match scale configuration
+3. Check scale protocol settings
+4. Review debug logs with `LOG_LEVEL=debug`
+
+### High Memory Usage
+1. Check number of connected scales
+2. Review streaming frequency
+3. Monitor with New Relic APM
+4. Adjust PM2 memory limits if needed
+
+## License
+
+MIT

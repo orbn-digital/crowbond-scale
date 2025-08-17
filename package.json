@@ -1,25 +1,62 @@
 {
-  "name": "xtrem-scale-nodejs",
-  "version": "1.0.0",
-  "description": "Node.js client for XTREM scales network connection",
-  "main": "xtrem-scale.js",
+  "name": "crowbond-scales",
+  "version": "2.0.0",
+  "description": "Production-ready Node.js client for XTREM scales network connection",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
-    "start": "node xtrem-scale.js",
-    "test": "node xtrem-scale.js"
+    "build": "tsc",
+    "start": "node -r newrelic dist/index.js",
+    "start:dev": "ts-node-dev --respawn --transpile-only -r dotenv/config src/index.ts",
+    "start:prod": "NODE_ENV=production node -r newrelic dist/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist coverage",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop ecosystem.config.js",
+    "pm2:restart": "pm2 restart ecosystem.config.js",
+    "pm2:logs": "pm2 logs"
   },
   "keywords": [
     "xtrem",
     "scale",
     "weight",
     "udp",
-    "network"
+    "network",
+    "industrial",
+    "iot"
   ],
   "author": "",
   "license": "MIT",
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=16.0.0"
   },
   "dependencies": {
-    "ably": "^2.11.0"
+    "ably": "^2.11.0",
+    "dotenv": "^16.4.5",
+    "joi": "^17.13.3",
+    "newrelic": "^12.8.1",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "jest": "^29.7.0",
+    "prettier": "^3.4.2",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.7.2"
   }
 }
