@@ -2,6 +2,7 @@ import * as dgram from 'dgram';
 import * as http from 'http';
 import { EventEmitter } from 'events';
 import { createLogger } from '../utils/logger';
+import { NewRelicMetrics } from '../utils/newrelic';
 import {
   ScaleConfig,
   WeightData,
@@ -13,6 +14,7 @@ import { config } from '../config';
 
 export class XtremScale extends EventEmitter {
   private readonly logger = createLogger('XtremScale');
+  private readonly metrics = NewRelicMetrics.getInstance();
   private client: dgram.Socket | null = null;
   private scaleIP: string;
   private localPort: number;
@@ -43,6 +45,7 @@ export class XtremScale extends EventEmitter {
           if (!this.streamingMode) {
             this.logger.debug(`Received from ${rinfo.address}:${rinfo.port}`);
           }
+          this.metrics.recordUDPCommunication(this.id, 'received', msg.length);
           this.handleMessage(msg.toString());
         });
 
@@ -51,6 +54,7 @@ export class XtremScale extends EventEmitter {
           this.isConnected = false;
           this.errorCount++;
           this.lastError = err.message;
+          this.metrics.recordScaleError(this.id, err);
           this.emit('error', err);
           this.scheduleReconnect();
         });
@@ -122,8 +126,10 @@ export class XtremScale extends EventEmitter {
       this.client.send(buffer, this.remotePort, this.scaleIP, (err) => {
         if (err) {
           this.logger.error({ err, scaleId: this.id }, 'Send error');
+          this.metrics.recordScaleError(this.id, err);
           reject(err);
         } else {
+          this.metrics.recordUDPCommunication(this.id, 'sent', buffer.length);
           if (!this.streamingMode) {
             this.logger.debug(
               { scaleId: this.id, command: this.formatCommand(command) },

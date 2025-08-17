@@ -3,10 +3,12 @@ import { XtremScale } from '../scales/XtremScale';
 import { RealTimeProvider, ScaleConfig, ScaleStatus, WeightData } from '../types/scale.types';
 import { AblyProvider } from './realtime/AblyProvider';
 import { createLogger } from '../utils/logger';
+import { NewRelicMetrics } from '../utils/newrelic';
 import { config } from '../config';
 
 export class ScaleManager extends EventEmitter {
   private readonly logger = createLogger('ScaleManager');
+  private readonly metrics = NewRelicMetrics.getInstance();
   private scales: Map<string, XtremScale> = new Map();
   private realTimeProvider: RealTimeProvider;
   private healthCheckInterval?: NodeJS.Timeout;
@@ -24,6 +26,7 @@ export class ScaleManager extends EventEmitter {
       
       this.isShuttingDown = true;
       this.logger.info({ signal }, 'Received shutdown signal, closing connections...');
+      this.metrics.recordShutdown(signal);
       
       await this.shutdown();
       process.exit(0);
@@ -92,11 +95,13 @@ export class ScaleManager extends EventEmitter {
       
       scale.on('connected', () => {
         this.logger.info({ scaleId }, 'Scale connected');
+        this.metrics.recordScaleConnection(scaleId, true);
         this.emit('scaleConnected', scaleId);
       });
       
       scale.on('disconnected', () => {
         this.logger.warn({ scaleId }, 'Scale disconnected');
+        this.metrics.recordScaleConnection(scaleId, false);
         this.emit('scaleDisconnected', scaleId);
       });
 
@@ -128,18 +133,45 @@ export class ScaleManager extends EventEmitter {
   private lastWeightValues: Map<string, string> = new Map();
 
   private async handleWeightUpdate(scaleId: string, weightData: WeightData): Promise<void> {
-    try {
-      const lastWeight = this.lastWeightValues.get(scaleId);
-      
-      // Only publish if the weight has changed
-      if (lastWeight !== weightData.display) {
-        await this.realTimeProvider.updateWeight(scaleId, weightData.display);
-        this.lastWeightValues.set(scaleId, weightData.display);
-        this.logger.debug({ scaleId, weight: weightData.display }, 'Weight changed, publishing update');
-        this.emit('weightUpdate', scaleId, weightData);
-      }
-    } catch (error) {
-      this.logger.error({ err: error, scaleId }, 'Failed to handle weight update');
+    const lastWeight = this.lastWeightValues.get(scaleId);
+    
+    // Only publish if the weight has changed
+    if (lastWeight !== weightData.display) {
+      // Create a transaction for each weight update
+      await this.metrics.startBackgroundTransaction(
+        'WeightUpdate',
+        'Scale',
+        async () => {
+          try {
+            // Add transaction attributes
+            this.metrics.addCustomAttributes({
+              scaleId,
+              weight: weightData.weight,
+              unit: weightData.unit,
+              display: weightData.display,
+            });
+            
+            // Publish to Ably
+            await this.metrics.startSegment('ably-publish', async () => {
+              try {
+                await this.realTimeProvider.updateWeight(scaleId, weightData.display);
+                this.metrics.recordAblyPublish(scaleId, 'weight-update', true);
+              } catch (error) {
+                this.metrics.recordAblyPublish(scaleId, 'weight-update', false);
+                throw error;
+              }
+            });
+            
+            this.lastWeightValues.set(scaleId, weightData.display);
+            this.metrics.recordWeightMeasurement(scaleId, weightData);
+            this.logger.debug({ scaleId, weight: weightData.display }, 'Weight changed, publishing update');
+            this.emit('weightUpdate', scaleId, weightData);
+          } catch (error) {
+            this.logger.error({ err: error, scaleId }, 'Failed to handle weight update');
+            throw error;
+          }
+        }
+      );
     }
   }
 
@@ -204,17 +236,34 @@ export class ScaleManager extends EventEmitter {
 
   private startHealthCheck(): void {
     this.healthCheckInterval = setInterval(async () => {
-      const statuses = this.getAllScaleStatuses();
-      
-      for (const status of statuses) {
-        try {
-          await this.realTimeProvider.updateStatus(status.id, status);
-        } catch (error) {
-          this.logger.error({ err: error, scaleId: status.id }, 'Failed to update status');
+      // Create a transaction for health check
+      await this.metrics.startBackgroundTransaction(
+        'HealthCheck',
+        'Monitoring',
+        async () => {
+          const statuses = this.getAllScaleStatuses();
+          
+          // Add transaction attributes
+          this.metrics.addCustomAttributes({
+            totalScales: statuses.length,
+            connectedScales: statuses.filter(s => s.isConnected).length,
+            totalErrors: statuses.reduce((sum, s) => sum + s.errorCount, 0),
+          });
+          
+          // Record health check metrics
+          this.metrics.recordHealthCheck(statuses);
+          
+          for (const status of statuses) {
+            try {
+              await this.realTimeProvider.updateStatus(status.id, status);
+            } catch (error) {
+              this.logger.error({ err: error, scaleId: status.id }, 'Failed to update status');
+            }
+          }
+          
+          this.emit('healthCheck', statuses);
         }
-      }
-      
-      this.emit('healthCheck', statuses);
+      );
     }, config.operational.healthCheckInterval);
   }
 

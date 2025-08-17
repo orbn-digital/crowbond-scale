@@ -3,12 +3,14 @@ import * as http from 'http';
 import { ScaleManager } from './services/ScaleManager';
 import { getScaleConfigs, config } from './config';
 import { createLogger } from './utils/logger';
+import { NewRelicMetrics } from './utils/newrelic';
 
 const logger = createLogger('Main');
 
 class ScaleService {
   private scaleManager: ScaleManager;
   private healthServer?: http.Server;
+  private metrics = NewRelicMetrics.getInstance();
 
   constructor() {
     this.scaleManager = new ScaleManager();
@@ -20,13 +22,23 @@ class ScaleService {
     // Initialize scales
     const scaleConfigs = getScaleConfigs();
     
+    // Record startup metrics
+    this.metrics.recordStartup(scaleConfigs.length);
+    
     if (scaleConfigs.length === 0) {
       logger.warn('No scale IPs configured. Add scale IPs to SCALE_IPS environment variable.');
     } else {
-      await this.scaleManager.initialize(scaleConfigs);
-      
-      // Start streaming for all scales
-      await this.scaleManager.startStreaming();
+      await this.metrics.startBackgroundTransaction('ScaleInitialization', 'Startup', async () => {
+        this.metrics.addCustomAttributes({
+          scaleCount: scaleConfigs.length,
+          scaleIPs: scaleConfigs.map(c => c.ip).join(','),
+        });
+        
+        await this.scaleManager.initialize(scaleConfigs);
+        
+        // Start streaming for all scales
+        await this.scaleManager.startStreaming();
+      });
     }
 
     // Start health check server
