@@ -22,6 +22,7 @@ export interface ScaleStatus {
   isConnected: boolean;
   lastSeen?: Date;
   lastWeight?: WeightData;
+  lastActivity?: Date;
   errorCount: number;
   lastError?: string;
 }
@@ -40,5 +41,9 @@ export enum ScaleCommand {
 export interface RealTimeProvider {
   updateWeight(scaleId: string, weight: string): Promise<void>;
   updateStatus(scaleId: string, status: ScaleStatus): Promise<void>;
+  // Presence for online discovery of scales
+  enterPresence(status: ScaleStatus): Promise<void>;
+  updatePresence(status: ScaleStatus): Promise<void>;
+  leavePresence(scaleId: string): Promise<void>;
   close(): void;
 }

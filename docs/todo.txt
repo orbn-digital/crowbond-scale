@@ -1,0 +1,4 @@
+- Auto discovery of scales on a network 
+- Presence channels for handset discovery 
+- scale friendly names 
+

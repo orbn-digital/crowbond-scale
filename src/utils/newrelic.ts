@@ -1,4 +1,4 @@
-const newrelic = require('newrelic');
+import newrelic from 'newrelic';
 import { WeightData, ScaleStatus } from '../types/scale.types';
 import { createLogger } from './logger';
 
@@ -8,8 +8,9 @@ const logger = createLogger('NewRelicMetrics');
 const isNewRelicAvailable = (): boolean => {
   try {
     // Check if we can call basic New Relic functions
-    return typeof newrelic.recordMetric === 'function' && 
-           typeof newrelic.noticeError === 'function';
+    return (
+      typeof newrelic.recordMetric === 'function' && typeof newrelic.noticeError === 'function'
+    );
   } catch {
     return false;
   }
@@ -40,7 +41,7 @@ export class NewRelicMetrics {
    */
   public recordWeightMeasurement(scaleId: string, weightData: WeightData): void {
     if (!this.isEnabled) return;
-    
+
     try {
       // Add custom attributes to current transaction
       newrelic.addCustomAttribute('scaleId', scaleId);
@@ -62,7 +63,7 @@ export class NewRelicMetrics {
    */
   public recordScaleConnection(scaleId: string, connected: boolean): void {
     if (!this.isEnabled) return;
-    
+
     try {
       // Add custom attributes
       newrelic.addCustomAttribute('scaleId', scaleId);
@@ -80,7 +81,7 @@ export class NewRelicMetrics {
    */
   public recordScaleError(scaleId: string, error: Error): void {
     if (!this.isEnabled) return;
-    
+
     try {
       newrelic.noticeError(error, {
         scaleId,
@@ -97,9 +98,13 @@ export class NewRelicMetrics {
   /**
    * Record UDP communication metrics
    */
-  public recordUDPCommunication(scaleId: string, direction: 'sent' | 'received', bytes: number): void {
+  public recordUDPCommunication(
+    scaleId: string,
+    direction: 'sent' | 'received',
+    bytes: number,
+  ): void {
     if (!this.isEnabled) return;
-    
+
     try {
       newrelic.recordMetric(`Custom/UDP/${direction}/Bytes`, bytes);
       newrelic.recordMetric(`Custom/UDP/${scaleId}/${direction}/Bytes`, bytes);
@@ -114,9 +119,9 @@ export class NewRelicMetrics {
    */
   public recordHealthCheck(statuses: ScaleStatus[]): void {
     if (!this.isEnabled) return;
-    
+
     try {
-      const connected = statuses.filter(s => s.isConnected).length;
+      const connected = statuses.filter((s) => s.isConnected).length;
       const total = statuses.length;
       const errorCount = statuses.reduce((sum, s) => sum + s.errorCount, 0);
 
@@ -140,7 +145,7 @@ export class NewRelicMetrics {
    */
   public async startSegment<T>(name: string, handler: () => Promise<T>): Promise<T> {
     if (!this.isEnabled) return handler();
-    
+
     try {
       // Use startSegment if available, otherwise just run the handler
       if (typeof newrelic.startSegment === 'function') {
@@ -159,12 +164,21 @@ export class NewRelicMetrics {
   /**
    * Add custom attributes to current transaction
    */
-  public addCustomAttributes(attributes: Record<string, any>): void {
+  public addCustomAttributes(attributes: Record<string, unknown>): void {
     if (!this.isEnabled) return;
-    
+
     try {
       for (const [key, value] of Object.entries(attributes)) {
-        newrelic.addCustomAttribute(key, value);
+        if (value === null || value === undefined) {
+          continue;
+        }
+        const serializable =
+          typeof value === 'string' ||
+          typeof value === 'number' ||
+          typeof value === 'boolean'
+            ? (value as string | number | boolean)
+            : String(value);
+        newrelic.addCustomAttribute(key, serializable);
       }
     } catch (error) {
       logger.debug({ err: error }, 'Failed to add custom attributes');
@@ -177,12 +191,13 @@ export class NewRelicMetrics {
   public async startBackgroundTransaction<T>(
     name: string,
     group: string,
-    handler: () => Promise<T>
+    handler: () => Promise<T>,
   ): Promise<T> {
     if (!this.isEnabled) return handler();
-    
-    return new Promise((resolve, reject) => {
-      newrelic.startBackgroundTransaction(name, group, async () => {
+
+    // eslint-disable-next-line no-async-promise-executor
+    return new Promise(async (resolve, reject) => {
+      await newrelic.startBackgroundTransaction(name, group, async () => {
         const transaction = newrelic.getTransaction();
         try {
           const result = await handler();
@@ -201,7 +216,7 @@ export class NewRelicMetrics {
    */
   public recordAblyPublish(scaleId: string, eventType: string, success: boolean): void {
     if (!this.isEnabled) return;
-    
+
     try {
       // Add custom attributes
       newrelic.addCustomAttribute('ablyScaleId', scaleId);
@@ -223,12 +238,12 @@ export class NewRelicMetrics {
    */
   public recordStartup(scaleCount: number): void {
     if (!this.isEnabled) return;
-    
+
     try {
       newrelic.addCustomAttribute('startupScaleCount', scaleCount);
       newrelic.addCustomAttribute('nodeVersion', process.version);
       newrelic.addCustomAttribute('platform', process.platform);
-      
+
       newrelic.recordMetric('Custom/Service/Startup', 1);
       newrelic.recordMetric('Custom/Service/ScaleCount', scaleCount);
     } catch (error) {
@@ -241,11 +256,11 @@ export class NewRelicMetrics {
    */
   public recordShutdown(reason: string): void {
     if (!this.isEnabled) return;
-    
+
     try {
       newrelic.addCustomAttribute('shutdownReason', reason);
       newrelic.addCustomAttribute('uptime', process.uptime());
-      
+
       newrelic.recordMetric('Custom/Service/Shutdown', 1);
       newrelic.recordMetric('Custom/Service/Uptime', process.uptime());
     } catch (error) {

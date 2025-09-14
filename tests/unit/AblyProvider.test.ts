@@ -1,6 +1,7 @@
 import * as Ably from 'ably';
 import { AblyProvider } from '../../src/services/realtime/AblyProvider';
 import { ScaleStatus } from '../../src/types/scale.types';
+import { config } from '../../src/config';
 
 // Mock Ably
 jest.mock('ably');
@@ -8,7 +9,7 @@ jest.mock('ably');
 describe('AblyProvider', () => {
   let provider: AblyProvider;
   let mockRealtime: jest.Mocked<Ably.Realtime>;
-  let mockChannel: jest.Mocked<Ably.Types.RealtimeChannelCallbacks>;
+  let mockChannel: any;
   let mockConnection: any;
 
   beforeEach(() => {
@@ -34,7 +35,9 @@ describe('AblyProvider', () => {
     } as any;
 
     // Mock Ably.Realtime constructor
-    (Ably.Realtime as jest.MockedClass<typeof Ably.Realtime>).mockImplementation(() => mockRealtime);
+    (Ably.Realtime as jest.MockedClass<typeof Ably.Realtime>).mockImplementation(
+      () => mockRealtime,
+    );
 
     provider = new AblyProvider();
   });
@@ -48,7 +51,7 @@ describe('AblyProvider', () => {
       expect(Ably.Realtime).toHaveBeenCalledWith(
         expect.objectContaining({
           key: expect.any(String),
-          clientId: 'Crowbond-Scales',
+          clientId: config.newRelic.appName,
           recover: expect.any(Function),
         }),
       );
@@ -81,7 +84,7 @@ describe('AblyProvider', () => {
 
     it('should reuse existing channel for same scaleId', async () => {
       const scaleId = 'scale-1';
-      
+
       await provider.updateWeight(scaleId, '10.5 kg');
       await provider.updateWeight(scaleId, '11.0 kg');
 
@@ -133,7 +136,9 @@ describe('AblyProvider', () => {
         lastError: 'Connection lost',
       };
 
-      await expect(provider.updateStatus('scale-1', status)).rejects.toThrow('Status update failed');
+      await expect(provider.updateStatus('scale-1', status)).rejects.toThrow(
+        'Status update failed',
+      );
     });
   });
 
@@ -158,12 +163,14 @@ describe('AblyProvider', () => {
 
   describe('connection recovery', () => {
     it('should attempt to recover connection', () => {
-      const recoverCallback = (Ably.Realtime as jest.MockedClass<typeof Ably.Realtime>).mock.calls[0][0].recover;
+      const recoverCallback = (Ably.Realtime as jest.MockedClass<typeof Ably.Realtime>).mock
+        .calls[0][0] as any;
+      const recover = recoverCallback?.recover;
 
-      if (recoverCallback) {
+      if (recover) {
         const mockCallback = jest.fn();
-        recoverCallback({} as any, mockCallback);
-        
+        recover({} as any, mockCallback);
+
         expect(mockCallback).toHaveBeenCalledWith(true);
       }
     });
@@ -173,7 +180,7 @@ describe('AblyProvider', () => {
     it('should handle connection failure', () => {
       // Get the failed event handler
       const failedHandler = mockConnection.on.mock.calls.find(
-        (call) => call[0] === 'failed',
+        (call: any) => call[0] === 'failed',
       )?.[1];
 
       if (failedHandler) {
@@ -185,7 +192,7 @@ describe('AblyProvider', () => {
     it('should handle disconnection', () => {
       // Get the disconnected event handler
       const disconnectedHandler = mockConnection.on.mock.calls.find(
-        (call) => call[0] === 'disconnected',
+        (call: any) => call[0] === 'disconnected',
       )?.[1];
 
       if (disconnectedHandler) {

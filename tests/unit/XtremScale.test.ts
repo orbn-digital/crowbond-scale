@@ -19,15 +19,26 @@ describe('XtremScale', () => {
   beforeEach(() => {
     // Create mock socket
     mockSocket = new EventEmitter() as jest.Mocked<dgram.Socket>;
-    mockSocket.bind = jest.fn((port, callback) => {
-      if (callback) callback();
-    });
-    mockSocket.send = jest.fn((msg, port, address, callback) => {
+    mockSocket.bind = jest.fn((_port: any, callback?: any) => {
+      if (callback) {
+        // Simulate async bind and emit a message to pass verification
+        setImmediate(() => {
+          callback();
+          // Emit a weight message to pass verification
+          mockSocket.emit('message', Buffer.from('\u000200FFr0001    100.5 kg\u0003'), {
+            address: '192.168.1.100',
+            port: 4444,
+          });
+        });
+      }
+      return mockSocket;
+    }) as any;
+    mockSocket.send = jest.fn((_msg: any, _port: any, _address: any, callback?: any) => {
       if (callback) callback(null);
-    });
-    mockSocket.close = jest.fn((callback) => {
+    }) as any;
+    mockSocket.close = jest.fn((callback?: any) => {
       if (callback) callback();
-    });
+    }) as any;
     mockSocket.removeAllListeners = jest.fn();
 
     // Mock dgram.createSocket
@@ -59,14 +70,18 @@ describe('XtremScale', () => {
 
     it('should handle connection errors', async () => {
       const error = new Error('Bind failed');
-      mockSocket.bind = jest.fn((port, callback) => {
+      mockSocket.bind = jest.fn((_port: any, _callback?: any) => {
         mockSocket.emit('error', error);
-      });
+      }) as any;
 
       const errorSpy = jest.fn();
       scale.on('error', errorSpy);
 
-      await scale.connect();
+      try {
+        await scale.connect();
+      } catch (e) {
+        // Expected to fail
+      }
 
       expect(errorSpy).toHaveBeenCalledWith(error);
     });
@@ -75,6 +90,8 @@ describe('XtremScale', () => {
   describe('sendCommand', () => {
     beforeEach(async () => {
       await scale.connect();
+      // Wait for verification to complete
+      await new Promise((resolve) => setTimeout(resolve, 100));
     });
 
     it('should send command successfully', async () => {
@@ -91,15 +108,15 @@ describe('XtremScale', () => {
 
     it('should reject if not connected', async () => {
       await scale.close();
-      
+
       await expect(scale.sendCommand('TEST')).rejects.toThrow('Scale not connected');
     });
 
     it('should handle send errors', async () => {
       const error = new Error('Send failed');
-      mockSocket.send = jest.fn((msg, port, address, callback) => {
+      mockSocket.send = jest.fn((_msg: any, _port: any, _address: any, callback?: any) => {
         if (callback) callback(error);
-      });
+      }) as any;
 
       await expect(scale.sendCommand('TEST')).rejects.toThrow('Send failed');
     });
@@ -155,7 +172,26 @@ describe('XtremScale', () => {
 
       // Simulate receiving weight data
       const weightMessage = '\u00020100r01071AW   0.000kg\u0003';
-      mockSocket.emit('message', Buffer.from(weightMessage), { address: '192.168.1.100', port: 4444 });
+      mockSocket.emit('message', Buffer.from(weightMessage), {
+        address: '192.168.1.100',
+        port: 4444,
+      });
+    });
+
+    it('should parse W segment when T and S fields follow', (done) => {
+      scale.on('weight', (weightData) => {
+        expect(weightData.weight).toBe('0.000');
+        expect(weightData.unit).toBe('kg');
+        expect(weightData.display).toBe('0.000 kg');
+        done();
+      });
+
+      // Example full streaming payload including tare and sequence
+      const fullMessage = '\u00020100r01071AW   0.000kgT   0.000kgS01561\u0003';
+      mockSocket.emit('message', Buffer.from(fullMessage), {
+        address: '192.168.1.100',
+        port: 4444,
+      });
     });
 
     it('should handle status messages', (done) => {
@@ -165,7 +201,10 @@ describe('XtremScale', () => {
       });
 
       const statusMessage = '\u00020100e101101054\u0003';
-      mockSocket.emit('message', Buffer.from(statusMessage), { address: '192.168.1.100', port: 4444 });
+      mockSocket.emit('message', Buffer.from(statusMessage), {
+        address: '192.168.1.100',
+        port: 4444,
+      });
     });
 
     it('should handle messages without STX/ETX', (done) => {
@@ -189,11 +228,14 @@ describe('XtremScale', () => {
       // Simulate weight response after 100ms
       setTimeout(() => {
         const weightMessage = '\u00020100r01071AW   5.500kg\u0003';
-        mockSocket.emit('message', Buffer.from(weightMessage), { address: '192.168.1.100', port: 4444 });
+        mockSocket.emit('message', Buffer.from(weightMessage), {
+          address: '192.168.1.100',
+          port: 4444,
+        });
       }, 100);
 
       const weight = await scale.getWeight(1000);
-      
+
       expect(weight.weight).toBe('5.500');
       expect(weight.unit).toBe('kg');
     });
@@ -283,6 +325,16 @@ describe('XtremScale', () => {
       expect(dgram.createSocket).toHaveBeenCalledTimes(2);
     });
 
+    it('should emit disconnected on UDP error', () => {
+      const disconnectedSpy = jest.fn();
+      scale.on('disconnected', disconnectedSpy);
+
+      const error = new Error('Network error');
+      mockSocket.emit('error', error);
+
+      expect(disconnectedSpy).toHaveBeenCalled();
+    });
+
     it('should use exponential backoff for reconnection', () => {
       // First error
       mockSocket.emit('error', new Error('Error 1'));
@@ -290,7 +342,7 @@ describe('XtremScale', () => {
 
       // Second error
       mockSocket.emit('error', new Error('Error 2'));
-      
+
       const status = scale.getStatus();
       expect(status.errorCount).toBe(2);
     });

@@ -27,6 +27,9 @@ const configSchema = Joi.object({
   RETRY_ATTEMPTS: Joi.number().default(3),
   RETRY_DELAY: Joi.number().default(1000),
   HEALTH_CHECK_INTERVAL: Joi.number().default(30000),
+  HEARTBEAT_INTERVAL: Joi.number().default(2000), // Check every 2 seconds
+  INACTIVITY_TIMEOUT: Joi.number().default(5000), // Mark offline after 5 seconds
+  VERIFICATION_TIMEOUT: Joi.number().default(2000), // 2 seconds to verify connection
 }).unknown();
 
 const { error, value: envVars } = configSchema.validate(process.env);
@@ -61,6 +64,9 @@ export const config = {
     retryAttempts: envVars.RETRY_ATTEMPTS as number,
     retryDelay: envVars.RETRY_DELAY as number,
     healthCheckInterval: envVars.HEALTH_CHECK_INTERVAL as number,
+    heartbeatInterval: envVars.HEARTBEAT_INTERVAL as number,
+    inactivityTimeout: envVars.INACTIVITY_TIMEOUT as number,
+    verificationTimeout: envVars.VERIFICATION_TIMEOUT as number,
   },
 };
 

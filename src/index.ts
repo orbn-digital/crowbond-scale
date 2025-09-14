@@ -1,6 +1,7 @@
 import 'newrelic';
 import * as http from 'http';
 import { ScaleManager } from './services/ScaleManager';
+import type { ScaleStatus } from './types/scale.types';
 import { getScaleConfigs, config } from './config';
 import { createLogger } from './utils/logger';
 import { NewRelicMetrics } from './utils/newrelic';
@@ -21,21 +22,21 @@ class ScaleService {
 
     // Initialize scales
     const scaleConfigs = getScaleConfigs();
-    
+
     // Record startup metrics
     this.metrics.recordStartup(scaleConfigs.length);
-    
+
     if (scaleConfigs.length === 0) {
       logger.warn('No scale IPs configured. Add scale IPs to SCALE_IPS environment variable.');
     } else {
       await this.metrics.startBackgroundTransaction('ScaleInitialization', 'Startup', async () => {
         this.metrics.addCustomAttributes({
           scaleCount: scaleConfigs.length,
-          scaleIPs: scaleConfigs.map(c => c.ip).join(','),
+          scaleIPs: scaleConfigs.map((c) => c.ip).join(','),
         });
-        
+
         await this.scaleManager.initialize(scaleConfigs);
-        
+
         // Start streaming for all scales
         await this.scaleManager.startStreaming();
       });
@@ -45,8 +46,8 @@ class ScaleService {
     this.startHealthServer();
 
     // Log scale statuses periodically
-    this.scaleManager.on('healthCheck', (statuses) => {
-      const connected = statuses.filter((s: any) => s.isConnected).length;
+    this.scaleManager.on('healthCheck', (statuses: ScaleStatus[]) => {
+      const connected = statuses.filter((s: ScaleStatus) => s.isConnected).length;
       const total = statuses.length;
       logger.info({ connected, total }, 'Health check completed');
     });
@@ -62,23 +63,26 @@ class ScaleService {
     this.healthServer = http.createServer((req, res) => {
       if (req.url === '/health' && req.method === 'GET') {
         const statuses = this.scaleManager.getAllScaleStatuses();
-        const healthy = statuses.length > 0 && statuses.some(s => s.isConnected);
-        
+        const healthy =
+          statuses.length > 0 && statuses.some((s: ScaleStatus) => s.isConnected === true);
+
         res.writeHead(healthy ? 200 : 503, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          status: healthy ? 'healthy' : 'unhealthy',
-          timestamp: new Date().toISOString(),
-          scales: statuses,
-        }));
+        res.end(
+          JSON.stringify({
+            status: healthy ? 'healthy' : 'unhealthy',
+            timestamp: new Date().toISOString(),
+            scales: statuses,
+          }),
+        );
       } else if (req.url === '/metrics' && req.method === 'GET') {
         const statuses = this.scaleManager.getAllScaleStatuses();
         const metrics = {
           scales_total: statuses.length,
-          scales_connected: statuses.filter(s => s.isConnected).length,
-          scales_disconnected: statuses.filter(s => !s.isConnected).length,
-          total_errors: statuses.reduce((sum, s) => sum + s.errorCount, 0),
+          scales_connected: statuses.filter((s: ScaleStatus) => s.isConnected).length,
+          scales_disconnected: statuses.filter((s: ScaleStatus) => !s.isConnected).length,
+          total_errors: statuses.reduce((sum: number, s: ScaleStatus) => sum + s.errorCount, 0),
         };
-        
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(metrics));
       } else {
@@ -94,11 +98,11 @@ class ScaleService {
 
   async stop(): Promise<void> {
     logger.info('Stopping service...');
-    
+
     if (this.healthServer) {
       this.healthServer.close();
     }
-    
+
     await this.scaleManager.shutdown();
     logger.info('Service stopped');
   }
@@ -107,7 +111,7 @@ class ScaleService {
 // Main execution
 async function main(): Promise<void> {
   const service = new ScaleService();
-  
+
   try {
     await service.start();
   } catch (error) {
