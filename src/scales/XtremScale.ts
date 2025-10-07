@@ -48,16 +48,24 @@ export class XtremScale extends EventEmitter {
         try {
           tmp.removeAllListeners();
           tmp.close();
-        } catch {}
+        } catch {
+          // noop
+        }
       };
       tmp.once('error', (err: NodeJS.ErrnoException) => {
         cleanup();
         if (err && err.code === 'EADDRINUSE') {
-          this.logger.warn({ scaleId: this.id, port: desired }, 'Local UDP port in use, using ephemeral port');
+          this.logger.warn(
+            { scaleId: this.id, port: desired },
+            'Local UDP port in use, using ephemeral port',
+          );
           resolve(0);
         } else {
           // Unknown error: still fall back to ephemeral to avoid startup failure
-          this.logger.warn({ err, scaleId: this.id, port: desired }, 'Port check failed, using ephemeral port');
+          this.logger.warn(
+            { err, scaleId: this.id, port: desired },
+            'Port check failed, using ephemeral port',
+          );
           resolve(0);
         }
       });
@@ -162,98 +170,105 @@ export class XtremScale extends EventEmitter {
             const addr = this.client?.address();
             if (addr && typeof addr === 'object') {
               if (this.localPort !== addr.port) {
-                this.logger.info({ scaleId: this.id, oldPort: this.localPort, newPort: addr.port }, 'Using fallback local UDP port');
+                this.logger.info(
+                  { scaleId: this.id, oldPort: this.localPort, newPort: addr.port },
+                  'Using fallback local UDP port',
+                );
                 this.localPort = addr.port;
               }
             }
-          } catch {}
+          } catch {
+            // noop
+          }
         });
 
         // Decide final port to bind (desired or ephemeral)
-        void this.chooseAvailablePort().then((portToBind) => {
-          this.client?.bind({ port: portToBind, exclusive: false }, async () => {
-            this.logger.info(
-              {
-                scaleId: this.id,
-                localPort: this.localPort,
-                remoteEndpoint: `${this.scaleIP}:${this.remotePort}`,
-              },
-              'UDP socket bound, attempting to verify scale connection',
-            );
-
-            // Do not use UDP connect(); we filter by rinfo in 'message'
-
-          // Set a timeout for connection validation
-          const validationTimeout = config.operational.verificationTimeout || 2000; // 2 seconds default
-          connectionTimeout = setTimeout(() => {
-            if (!connectionValidated) {
-              const error = new Error(`Scale at ${this.scaleIP} is not responding`);
-              this.logger.error(
+        void this.chooseAvailablePort()
+          .then((portToBind) => {
+            this.client?.bind({ port: portToBind, exclusive: false }, async () => {
+              this.logger.info(
                 {
                   scaleId: this.id,
-                  ip: this.scaleIP,
-                  timeout: validationTimeout,
+                  localPort: this.localPort,
+                  remoteEndpoint: `${this.scaleIP}:${this.remotePort}`,
                 },
-                'Scale connection validation timeout - scale may be offline',
+                'UDP socket bound, attempting to verify scale connection',
               );
-              this.isConnected = false;
-              if (this.client) {
-                this.client.removeAllListeners();
-                this.client.close();
-                this.client = null;
+
+              // Do not use UDP connect(); we filter by rinfo in 'message'
+
+              // Set a timeout for connection validation
+              const validationTimeout = config.operational.verificationTimeout || 2000; // 2 seconds default
+              connectionTimeout = setTimeout(() => {
+                if (!connectionValidated) {
+                  const error = new Error(`Scale at ${this.scaleIP} is not responding`);
+                  this.logger.error(
+                    {
+                      scaleId: this.id,
+                      ip: this.scaleIP,
+                      timeout: validationTimeout,
+                    },
+                    'Scale connection validation timeout - scale may be offline',
+                  );
+                  this.isConnected = false;
+                  if (this.client) {
+                    this.client.removeAllListeners();
+                    this.client.close();
+                    this.client = null;
+                  }
+                  // Schedule reconnect attempts after validation timeout
+                  this.scheduleReconnect();
+                  reject(error);
+                }
+              }, validationTimeout);
+
+              // Send initial command to trigger response from scale (skip in test env)
+              try {
+                if (config.env !== 'test') {
+                  await this.sendCommand(ScaleCommand.STOP_STREAMING, true);
+                  this.logger.debug({ scaleId: this.id }, 'Sent initial handshake command');
+                }
+              } catch (err: unknown) {
+                clearTimeout(connectionTimeout);
+
+                const code =
+                  err && typeof err === 'object' && 'code' in err
+                    ? String((err as { code?: unknown }).code)
+                    : undefined;
+
+                if (code === 'EHOSTDOWN' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH') {
+                  const error = new Error(
+                    `Cannot reach scale at ${this.scaleIP}:${this.remotePort} - scale may be offline or on different network`,
+                  );
+                  this.logger.error(
+                    {
+                      scaleId: this.id,
+                      ip: this.scaleIP,
+                      port: this.remotePort,
+                      errorCode: code,
+                    },
+                    'Network error - scale unreachable',
+                  );
+                  this.isConnected = false;
+                  if (this.client) {
+                    this.client.removeAllListeners();
+                    this.client.close();
+                    this.client = null;
+                  }
+                  // Proactively schedule reconnect after initial network error
+                  this.scheduleReconnect();
+                  reject(error);
+                } else {
+                  this.logger.error({ err, scaleId: this.id }, 'Failed to send handshake');
+                  reject(err as Error);
+                }
               }
-              // Schedule reconnect attempts after validation timeout
-              this.scheduleReconnect();
-              reject(error);
-            }
-          }, validationTimeout);
-
-          // Send initial command to trigger response from scale (skip in test env)
-          try {
-            if (config.env !== 'test') {
-              await this.sendCommand(ScaleCommand.STOP_STREAMING, true);
-              this.logger.debug({ scaleId: this.id }, 'Sent initial handshake command');
-            }
-          } catch (err: unknown) {
-            clearTimeout(connectionTimeout);
-
-            const code =
-              err && typeof err === 'object' && 'code' in err
-                ? String((err as { code?: unknown }).code)
-                : undefined;
-
-            if (code === 'EHOSTDOWN' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH') {
-              const error = new Error(
-                `Cannot reach scale at ${this.scaleIP}:${this.remotePort} - scale may be offline or on different network`,
-              );
-              this.logger.error(
-                {
-                  scaleId: this.id,
-                  ip: this.scaleIP,
-                  port: this.remotePort,
-                  errorCode: code,
-                },
-                'Network error - scale unreachable',
-              );
-              this.isConnected = false;
-              if (this.client) {
-                this.client.removeAllListeners();
-                this.client.close();
-                this.client = null;
-              }
-              // Proactively schedule reconnect after initial network error
-              this.scheduleReconnect();
-              reject(error);
-            } else {
-              this.logger.error({ err, scaleId: this.id }, 'Failed to send handshake');
-              reject(err as Error);
-            }
-          }
-        });
-        }).catch((err) => {
-          this.logger.error({ err, scaleId: this.id }, 'Failed to choose/bind local UDP port');
-          reject(err);
-        });
+            });
+          })
+          .catch((err) => {
+            this.logger.error({ err, scaleId: this.id }, 'Failed to choose/bind local UDP port');
+            reject(err);
+          });
       } catch (error) {
         this.logger.error({ err: error, scaleId: this.id }, 'Failed to connect');
         reject(error);
@@ -381,7 +396,7 @@ export class XtremScale extends EventEmitter {
       }
 
       const buffer = Buffer.from(command);
-      const onSend = (err: Error | null, bytes?: number) => {
+      const onSend = (err: Error | null, bytes?: number): void => {
         if (err) {
           this.logger.error({ err, scaleId: this.id }, 'Send error');
           this.metrics.recordScaleError(this.id, err);

@@ -439,7 +439,11 @@ export class ScaleManager extends EventEmitter {
         for (const status of statuses) {
           try {
             await this.realTimeProvider.updateStatus(status.id, status);
-            await this.realTimeProvider.updatePresence(status);
+            if (status.isConnected) {
+              await this.realTimeProvider.updatePresence(status);
+            } else {
+              await this.realTimeProvider.leavePresence(status.id);
+            }
           } catch (error) {
             this.logger.error({ err: error, scaleId: status.id }, 'Failed to update status');
           }

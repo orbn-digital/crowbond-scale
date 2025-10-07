@@ -4,12 +4,22 @@ import { ScaleStatus } from '../../types/scale.types';
 import { createLogger } from '../../utils/logger';
 import { config } from '../../config';
 
+type ChannelLike = {
+  publish: (name: string, data: unknown) => Promise<void> | void;
+  detach: () => void;
+  presence: {
+    enter: (data: unknown) => Promise<void> | void;
+    update: (data: unknown) => Promise<void> | void;
+    leave: (data?: unknown) => Promise<void> | void;
+  };
+};
+
 export class AblyProvider extends BaseRealTimeProvider {
   private readonly logger = createLogger('AblyProvider');
-  // Use loose typing here to avoid dependency on Ably's internal type namespaces
+  // Use minimal structural types to avoid leaking Ably internals into app types
   private service: Ably.Realtime;
-  private channels: Map<string, any> = new Map();
-  private presenceChannel?: any;
+  private channels: Map<string, ChannelLike> = new Map();
+  private presenceChannel?: ChannelLike;
 
   constructor() {
     super('Ably');
@@ -38,17 +48,17 @@ export class AblyProvider extends BaseRealTimeProvider {
     });
   }
 
-  private getChannel(scaleId: string): any {
+  private getChannel(scaleId: string): ChannelLike {
     if (!this.channels.has(scaleId)) {
-      const channel = this.service.channels.get(`scale-${scaleId}`);
+      const channel = this.service.channels.get(`scale-${scaleId}`) as unknown as ChannelLike;
       this.channels.set(scaleId, channel);
     }
     return this.channels.get(scaleId)!;
   }
 
-  private getPresenceChannel(): any {
+  private getPresenceChannel(): ChannelLike {
     if (!this.presenceChannel) {
-      this.presenceChannel = this.service.channels.get('scales');
+      this.presenceChannel = this.service.channels.get('scales') as unknown as ChannelLike;
     }
     return this.presenceChannel;
   }
@@ -70,11 +80,17 @@ export class AblyProvider extends BaseRealTimeProvider {
   async updateStatus(scaleId: string, status: ScaleStatus): Promise<void> {
     try {
       const channel = this.getChannel(scaleId);
-      const { ip: _omitIp, ...rest } = status;
-      await channel.publish('status-update', {
-        ...rest,
+      const payload = {
+        id: status.id,
+        isConnected: status.isConnected,
+        lastSeen: status.lastSeen,
+        lastWeight: status.lastWeight,
+        lastActivity: status.lastActivity,
+        errorCount: status.errorCount,
+        lastError: status.lastError,
         timestamp: new Date().toISOString(),
-      });
+      };
+      await channel.publish('status-update', payload);
     } catch (error) {
       this.logger.error({ err: error, scaleId }, 'Failed to publish status update');
       throw error;
@@ -83,6 +99,10 @@ export class AblyProvider extends BaseRealTimeProvider {
 
   async enterPresence(status: ScaleStatus): Promise<void> {
     try {
+      if (!status.isConnected) {
+        this.logger.debug({ scaleId: status.id }, 'Skip presence enter: scale offline');
+        return;
+      }
       const channel = this.getPresenceChannel();
       // Enter presence as this service's clientId; include scale id in data
       await channel.presence.enter({
@@ -101,6 +121,10 @@ export class AblyProvider extends BaseRealTimeProvider {
 
   async updatePresence(status: ScaleStatus): Promise<void> {
     try {
+      if (!status.isConnected) {
+        this.logger.debug({ scaleId: status.id }, 'Skip presence update: scale offline');
+        return;
+      }
       const channel = this.getPresenceChannel();
       await channel.presence.update({
         id: status.id,
@@ -134,7 +158,7 @@ export class AblyProvider extends BaseRealTimeProvider {
     if (this.presenceChannel) {
       try {
         this.presenceChannel.detach();
-      } catch (e) {
+      } catch {
         // ignore
       }
     }

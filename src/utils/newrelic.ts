@@ -173,9 +173,7 @@ export class NewRelicMetrics {
           continue;
         }
         const serializable =
-          typeof value === 'string' ||
-          typeof value === 'number' ||
-          typeof value === 'boolean'
+          typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
             ? (value as string | number | boolean)
             : String(value);
         newrelic.addCustomAttribute(key, serializable);
