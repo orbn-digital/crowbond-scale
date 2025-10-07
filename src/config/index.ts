@@ -21,6 +21,8 @@ const configSchema = Joi.object({
   SCALE_IPS: Joi.string().default(''),
   LOCAL_PORT: Joi.number().default(5555),
   REMOTE_PORT: Joi.number().default(4444),
+  DEVICE_API_BASE_URL: Joi.string().uri().allow('').default(''),
+  SCALE_DEVICE_TYPE: Joi.string().default('Scale'),
 
   // Operational configuration
   SCALE_TIMEOUT: Joi.number().default(5000),
@@ -58,6 +60,11 @@ export const config = {
     localPort: envVars.LOCAL_PORT as number,
     remotePort: envVars.REMOTE_PORT as number,
     timeout: envVars.SCALE_TIMEOUT as number,
+  },
+
+  deviceService: {
+    baseUrl: (envVars.DEVICE_API_BASE_URL as string) || undefined,
+    scaleType: envVars.SCALE_DEVICE_TYPE as number,
   },
 
   operational: {

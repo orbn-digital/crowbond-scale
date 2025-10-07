@@ -38,7 +38,9 @@ cp .env.example .env
 2. Update `.env` with your configuration:
 - `ABLY_API_KEY`: Your Ably API key
 - `NEW_RELIC_LICENSE_KEY`: Your New Relic license key
-- `SCALE_IPS`: Comma-separated list of scale IP addresses
+- `DEVICE_API_BASE_URL`: Base URL for the device service (for example `https://devices.api/v1/`)
+- `SCALE_DEVICE_TYPE`: Device type to request from the device service (default: `Scale`)
+- `SCALE_IPS`: Comma-separated list of scale IP addresses (used as a fallback when discovery fails)
 - `LOCAL_PORT`: Local UDP port for receiving data (default: 5555)
 - `REMOTE_PORT`: Scale UDP port (default: 4444)
 

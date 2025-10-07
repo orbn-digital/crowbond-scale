@@ -2,9 +2,10 @@ import 'newrelic';
 import * as http from 'http';
 import { ScaleManager } from './services/ScaleManager';
 import type { ScaleStatus } from './types/scale.types';
-import { getScaleConfigs, config } from './config';
+import { config } from './config';
 import { createLogger } from './utils/logger';
 import { NewRelicMetrics } from './utils/newrelic';
+import { discoverScaleConfigs } from './services/ScaleDiscoveryService';
 
 const logger = createLogger('Main');
 
@@ -21,13 +22,15 @@ class ScaleService {
     logger.info({ env: config.env }, 'Starting Crowbond Scales Service');
 
     // Initialize scales
-    const scaleConfigs = getScaleConfigs();
+    const scaleConfigs = await discoverScaleConfigs();
 
     // Record startup metrics
     this.metrics.recordStartup(scaleConfigs.length);
 
     if (scaleConfigs.length === 0) {
-      logger.warn('No scale IPs configured. Add scale IPs to SCALE_IPS environment variable.');
+      logger.warn(
+        'No scales discovered from device API or SCALE_IPS fallback. Check configuration.',
+      );
     } else {
       await this.metrics.startBackgroundTransaction('ScaleInitialization', 'Startup', async () => {
         this.metrics.addCustomAttributes({
