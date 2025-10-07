@@ -24,7 +24,10 @@ export async function discoverScaleConfigs(): Promise<ScaleConfig[]> {
   }
 
   try {
-    logger.info({ baseUrl, type: config.deviceService.scaleType }, 'Fetching scale devices from API');
+    logger.info(
+      { baseUrl, type: config.deviceService.scaleType },
+      'Fetching scale devices from API',
+    );
     const devices = await fetchDevicesFromApi(baseUrl, config.deviceService.scaleType);
     if (devices.length === 0) {
       logger.warn({ baseUrl }, 'Device API returned no scale devices');
@@ -65,14 +68,16 @@ async function fetchDevicesFromApi(baseUrl: string, type: number): Promise<Devic
   }
 
   return response.filter((device): device is DeviceBrief => {
-    return Boolean(device && typeof device.networkAddress === 'string' && device.networkAddress.trim());
+    return Boolean(
+      device && typeof device.networkAddress === 'string' && device.networkAddress.trim(),
+    );
   });
 }
 
 function buildDevicesUrl(baseUrl: string, type: number): URL {
   const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
   const url = new URL('devices', normalizedBaseUrl);
-  url.searchParams.set('type', type);
+  url.searchParams.set('type', type.toString());
   return url;
 }
 
